@@ -16,6 +16,7 @@ package main
 
 import (
 	"flag"
+	"strconv"
 	"strings"
 
 	"go.etcd.io/raft/v3/raftpb"
@@ -26,7 +27,20 @@ func main() {
 	id := flag.Int("id", 1, "node ID")
 	kvport := flag.Int("port", 9121, "key-value server port")
 	join := flag.Bool("join", false, "join an existing cluster")
+	backend := flag.String("backend", "bolt", "backend type (bolt, leveldb, memory)")
 	flag.Parse()
+
+	var backendType BackendType
+	switch *backend {
+	case "bolt":
+		backendType = Bolt
+	case "leveldb":
+		backendType = LevelDB
+	case "memory":
+		backendType = Memory
+	default:
+		panic("unknown backend type")
+	}
 
 	proposeC := make(chan string)
 	defer close(proposeC)
@@ -38,7 +52,7 @@ func main() {
 	getSnapshot := func() ([]byte, error) { return kvs.getSnapshot() }
 	commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC)
 
-	kvs = newKVStore(<-snapshotterReady, proposeC, commitC, errorC)
+	kvs = newKVStore(<-snapshotterReady, proposeC, commitC, errorC, backendType, strconv.Itoa(*id))
 
 	// the key-value http handler will propose updates to raft
 	serveHTTPKVAPI(kvs, *kvport, confChangeC, errorC)

@@ -20,18 +20,34 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"path/filepath"
 	"strings"
 	"sync"
 
+	bolt "go.etcd.io/bbolt"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
 	"go.etcd.io/raft/v3/raftpb"
 )
+
+type BackendType int
+
+const (
+	Bolt BackendType = iota
+	LevelDB
+	Memory
+)
+
+type KVBackend interface {
+	Put(key, value string) error
+	Get(key string) (string, error)
+	Delete(key string) error
+}
 
 // a key-value store backed by raft
 type kvstore struct {
 	proposeC    chan<- string // channel for proposing updates
 	mu          sync.RWMutex
-	kvStore     map[string]string // current committed key-value pairs
+	backend     KVBackend // current committed key-value backend
 	snapshotter *snap.Snapshotter
 }
 
@@ -40,8 +56,26 @@ type kv struct {
 	Val string
 }
 
-func newKVStore(snapshotter *snap.Snapshotter, proposeC chan<- string, commitC <-chan *commit, errorC <-chan error) *kvstore {
-	s := &kvstore{proposeC: proposeC, kvStore: make(map[string]string), snapshotter: snapshotter}
+func newKVStore(snapshotter *snap.Snapshotter, proposeC chan<- string, commitC <-chan *commit, errorC <-chan error, backendType BackendType, nodeID string) *kvstore {
+	var backend KVBackend
+	var err error
+
+	switch backendType {
+	case Bolt:
+		backend, err = NewBoltdbBackend(filepath.Join("./dbfile", "boltdb-"+nodeID))
+	case LevelDB:
+		backend, err = NewLeveldbBackend(filepath.Join("./dbfile", "leveldb-"+nodeID))
+	case Memory:
+		backend = NewMemoryBackend()
+	default:
+		log.Panicf("unknown backend type: %d", backendType)
+	}
+
+	if err != nil {
+		log.Panic(err)
+	}
+
+	s := &kvstore{proposeC: proposeC, backend: backend, snapshotter: snapshotter}
 	snapshot, err := s.loadSnapshot()
 	if err != nil {
 		log.Panic(err)
@@ -60,8 +94,11 @@ func newKVStore(snapshotter *snap.Snapshotter, proposeC chan<- string, commitC <
 func (s *kvstore) Lookup(key string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	v, ok := s.kvStore[key]
-	return v, ok
+	v, err := s.backend.Get(key)
+	if err != nil {
+		return "", false
+	}
+	return v, true
 }
 
 func (s *kvstore) Propose(k string, v string) {
@@ -96,7 +133,9 @@ func (s *kvstore) readCommits(commitC <-chan *commit, errorC <-chan error) {
 				log.Fatalf("raftexample: could not decode message (%v)", err)
 			}
 			s.mu.Lock()
-			s.kvStore[dataKv.Key] = dataKv.Val
+			if err := s.backend.Put(dataKv.Key, dataKv.Val); err != nil {
+				log.Fatal(err)
+			}
 			s.mu.Unlock()
 		}
 		close(commit.applyDoneC)
@@ -109,7 +148,42 @@ func (s *kvstore) readCommits(commitC <-chan *commit, errorC <-chan error) {
 func (s *kvstore) getSnapshot() ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return json.Marshal(s.kvStore)
+
+	switch backend := s.backend.(type) {
+	case *boltdbBackend:
+		snapshotData := make(map[string]string)
+		err := backend.db.View(func(tx *bolt.Tx) error {
+			bucket := tx.Bucket([]byte("keys"))
+			if bucket == nil {
+				return nil
+			}
+			return bucket.ForEach(func(k, v []byte) error {
+				snapshotData[string(k)] = string(v)
+				return nil
+			})
+		})
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(snapshotData)
+	case *leveldbBackend:
+		snapshotData := make(map[string]string)
+		iter := backend.db.NewIterator(nil, nil)
+		for iter.Next() {
+			key := string(iter.Key())
+			value := string(iter.Value())
+			snapshotData[key] = value
+		}
+		iter.Release()
+		if err := iter.Error(); err != nil {
+			return nil, err
+		}
+		return json.Marshal(snapshotData)
+	case *memoryBackend:
+		return json.Marshal(backend.db)
+	default:
+		return nil, errors.New("unknown backend type")
+	}
 }
 
 func (s *kvstore) loadSnapshot() (*raftpb.Snapshot, error) {
@@ -130,6 +204,10 @@ func (s *kvstore) recoverFromSnapshot(snapshot []byte) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.kvStore = store
+	for k, v := range store {
+		if err := s.backend.Put(k, v); err != nil {
+			return err
+		}
+	}
 	return nil
 }

@@ -185,7 +185,7 @@ func TestPutAndGetKeyValue(t *testing.T) {
 	getSnapshot := func() ([]byte, error) { return kvs.getSnapshot() }
 	commitC, errorC, snapshotterReady := newRaftNode(1, clusters, false, getSnapshot, proposeC, confChangeC)
 
-	kvs = newKVStore(<-snapshotterReady, proposeC, commitC, errorC)
+	kvs = newKVStore(<-snapshotterReady, proposeC, commitC, errorC, Bolt, "test-node")
 
 	srv := httptest.NewServer(&httpKVAPI{
 		store:       kvs,

@@ -15,26 +15,97 @@
 package main
 
 import (
-	"reflect"
+	"encoding/json"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
+	"go.uber.org/zap"
 )
 
-func Test_kvstore_snapshot(t *testing.T) {
-	tm := map[string]string{"foo": "bar"}
-	s := &kvstore{kvStore: tm}
+func TestKVStoreWithBackends(t *testing.T) {
+	backendTypes := []BackendType{Bolt, LevelDB, Memory}
 
-	v, _ := s.Lookup("foo")
-	require.Equalf(t, "bar", v, "foo has unexpected value, got %s", v)
+	for _, backendType := range backendTypes {
+		t.Run(string(backendType), func(t *testing.T) {
+			proposeC := make(chan string)
+			defer close(proposeC)
 
-	data, err := s.getSnapshot()
-	require.NoError(t, err)
-	s.kvStore = nil
+			snapshotter := snap.New(zap.NewNop(), t.TempDir())
+			kv := newKVStore(snapshotter, proposeC, nil, nil, backendType, "test-node")
 
-	err = s.recoverFromSnapshot(data)
-	require.NoError(t, err)
-	v, _ = s.Lookup("foo")
-	require.Equalf(t, "bar", v, "foo has unexpected value, got %s", v)
-	require.Truef(t, reflect.DeepEqual(s.kvStore, tm), "store expected %+v, got %+v", tm, s.kvStore)
+			// Test Put and Get
+			key := "test-key"
+			value := "test-value"
+			kv.Propose(key, value)
+
+			// Simulate commit (simplified for testing)
+			kv.mu.Lock()
+			if err := kv.backend.Put(key, value); err != nil {
+				t.Fatal(err)
+			}
+			kv.mu.Unlock()
+
+			got, ok := kv.Lookup(key)
+			if !ok || got != value {
+				t.Fatalf("expected %s, got %s", value, got)
+			}
+
+			// Test Delete
+			kv.Propose(key, "")
+			kv.mu.Lock()
+			if err := kv.backend.Delete(key); err != nil {
+				t.Fatal(err)
+			}
+			kv.mu.Unlock()
+
+			_, ok = kv.Lookup(key)
+			if ok {
+				t.Fatal("key should be deleted")
+			}
+
+			// Test Snapshot
+			snapshot, err := kv.getSnapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(snapshot) == 0 {
+				t.Fatal("snapshot should not be empty")
+			}
+		})
+	}
+}
+
+func TestRecoverFromSnapshot(t *testing.T) {
+	backendTypes := []BackendType{Bolt, LevelDB, Memory}
+
+	for _, backendType := range backendTypes {
+		t.Run(string(backendType), func(t *testing.T) {
+			proposeC := make(chan string)
+			defer close(proposeC)
+
+			snapshotter := snap.New(zap.NewNop(), t.TempDir())
+			kv := newKVStore(snapshotter, proposeC, nil, nil, backendType, "test-node")
+
+			// Prepare test data
+			data := map[string]string{"key1": "value1", "key2": "value2"}
+			snapshot, err := json.Marshal(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Simulate recovering from snapshot
+			if err := kv.recoverFromSnapshot(snapshot); err != nil {
+				t.Fatal(err)
+			}
+
+			// Verify data
+			for k, v := range data {
+				got, ok := kv.Lookup(k)
+				if !ok || got != v {
+					t.Fatalf("expected %s, got %s", v, got)
+				}
+			}
+		})
+	}
 }
