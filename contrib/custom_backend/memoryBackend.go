@@ -1,6 +1,9 @@
-package main
+package custom_backend
 
-import "errors"
+import (
+	"encoding/json"
+	"errors"
+)
 
 type memoryBackend struct {
 	db map[string]string
@@ -27,4 +30,8 @@ func (m *memoryBackend) Get(key string) (string, error) {
 func (m *memoryBackend) Delete(key string) error {
 	delete(m.db, key)
 	return nil
+}
+
+func (m *memoryBackend) GetSnapshot() ([]byte, error) {
+	return json.Marshal(m.db)
 }

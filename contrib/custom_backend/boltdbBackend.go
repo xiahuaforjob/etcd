@@ -1,6 +1,8 @@
-package main
+package custom_backend
 
 import (
+	"encoding/json"
+
 	bolt "go.etcd.io/bbolt"
 	bolterrors "go.etcd.io/bbolt/errors"
 )
@@ -62,4 +64,22 @@ func (b *boltdbBackend) Delete(key string) error {
 		}
 		return bucket.Delete([]byte(key))
 	})
+}
+
+func (b *boltdbBackend) GetSnapshot() ([]byte, error) {
+	snapshotData := make(map[string]string)
+	err := b.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte("keys"))
+		if bucket == nil {
+			return nil
+		}
+		return bucket.ForEach(func(k, v []byte) error {
+			snapshotData[string(k)] = string(v)
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(snapshotData)
 }

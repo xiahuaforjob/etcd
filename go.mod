@@ -9,6 +9,8 @@ replace (
 	go.etcd.io/etcd/client/pkg/v3 => ./client/pkg
 	go.etcd.io/etcd/client/v2 => ./client/internal/v2
 	go.etcd.io/etcd/client/v3 => ./client/v3
+	go.etcd.io/etcd/contrib/custom_backend => ./contrib/custom_backend
+	go.etcd.io/etcd/contrib/custom_wal => ./contrib/custom_wal
 	go.etcd.io/etcd/etcdctl/v3 => ./etcdctl
 	go.etcd.io/etcd/etcdutl/v3 => ./etcdutl
 	go.etcd.io/etcd/pkg/v3 => ./pkg
@@ -23,16 +25,17 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
-	github.com/syndtr/goleveldb v1.0.0
 	go.etcd.io/bbolt v1.4.0
 	go.etcd.io/etcd/api/v3 v3.6.0-alpha.0
 	go.etcd.io/etcd/client/pkg/v3 v3.6.0-alpha.0
 	go.etcd.io/etcd/client/v2 v2.306.0-alpha.0
 	go.etcd.io/etcd/client/v3 v3.6.0-alpha.0
+	go.etcd.io/etcd/contrib/custom_backend v0.0.0-00010101000000-000000000000
+	go.etcd.io/etcd/contrib/custom_wal v0.0.0-00010101000000-000000000000
 	go.etcd.io/etcd/etcdctl/v3 v3.6.0-alpha.0
 	go.etcd.io/etcd/etcdutl/v3 v3.6.0-alpha.0
 	go.etcd.io/etcd/pkg/v3 v3.6.0-alpha.0
-	go.etcd.io/etcd/server/v3 v3.6.0-alpha.0
+	go.etcd.io/etcd/server/v3 v3.6.0
 	go.etcd.io/etcd/tests/v3 v3.0.0-00010101000000-000000000000
 	go.etcd.io/raft/v3 v3.6.0
 	go.uber.org/zap v1.27.0
@@ -80,6 +83,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/soheilhy/cmux v0.1.5 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
+	github.com/syndtr/goleveldb v1.0.0 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	go.etcd.io/gofail v0.2.0 // indirect

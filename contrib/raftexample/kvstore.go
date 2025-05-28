@@ -24,7 +24,7 @@ import (
 	"strings"
 	"sync"
 
-	bolt "go.etcd.io/bbolt"
+	"go.etcd.io/etcd/contrib/custom_backend"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
 	"go.etcd.io/raft/v3/raftpb"
 )
@@ -41,6 +41,7 @@ type KVBackend interface {
 	Put(key, value string) error
 	Get(key string) (string, error)
 	Delete(key string) error
+	GetSnapshot() ([]byte, error)
 }
 
 // a key-value store backed by raft
@@ -62,11 +63,11 @@ func newKVStore(snapshotter *snap.Snapshotter, proposeC chan<- string, commitC <
 
 	switch backendType {
 	case Bolt:
-		backend, err = NewBoltdbBackend(filepath.Join("./dbfile", "boltdb-"+nodeID))
+		backend, err = custom_backend.NewBoltdbBackend(filepath.Join("./dbfile", "boltdb-"+nodeID))
 	case LevelDB:
-		backend, err = NewLeveldbBackend(filepath.Join("./dbfile", "leveldb-"+nodeID))
+		backend, err = custom_backend.NewLeveldbBackend(filepath.Join("./dbfile", "leveldb-"+nodeID))
 	case Memory:
-		backend = NewMemoryBackend()
+		backend = custom_backend.NewMemoryBackend()
 	default:
 		log.Panicf("unknown backend type: %d", backendType)
 	}
@@ -148,42 +149,7 @@ func (s *kvstore) readCommits(commitC <-chan *commit, errorC <-chan error) {
 func (s *kvstore) getSnapshot() ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
-	switch backend := s.backend.(type) {
-	case *boltdbBackend:
-		snapshotData := make(map[string]string)
-		err := backend.db.View(func(tx *bolt.Tx) error {
-			bucket := tx.Bucket([]byte("keys"))
-			if bucket == nil {
-				return nil
-			}
-			return bucket.ForEach(func(k, v []byte) error {
-				snapshotData[string(k)] = string(v)
-				return nil
-			})
-		})
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(snapshotData)
-	case *leveldbBackend:
-		snapshotData := make(map[string]string)
-		iter := backend.db.NewIterator(nil, nil)
-		for iter.Next() {
-			key := string(iter.Key())
-			value := string(iter.Value())
-			snapshotData[key] = value
-		}
-		iter.Release()
-		if err := iter.Error(); err != nil {
-			return nil, err
-		}
-		return json.Marshal(snapshotData)
-	case *memoryBackend:
-		return json.Marshal(backend.db)
-	default:
-		return nil, errors.New("unknown backend type")
-	}
+	return s.backend.GetSnapshot()
 }
 
 func (s *kvstore) loadSnapshot() (*raftpb.Snapshot, error) {

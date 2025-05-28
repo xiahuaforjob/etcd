@@ -1,6 +1,8 @@
-package main
+package custom_backend
 
 import (
+	"encoding/json"
+
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
@@ -30,4 +32,19 @@ func (l *leveldbBackend) Get(key string) (string, error) {
 
 func (l *leveldbBackend) Delete(key string) error {
 	return l.db.Delete([]byte(key), nil)
+}
+
+func (l *leveldbBackend) GetSnapshot() ([]byte, error) {
+	snapshotData := make(map[string]string)
+	iter := l.db.NewIterator(nil, nil)
+	for iter.Next() {
+		key := string(iter.Key())
+		value := string(iter.Value())
+		snapshotData[key] = value
+	}
+	iter.Release()
+	if err := iter.Error(); err != nil {
+		return nil, err
+	}
+	return json.Marshal(snapshotData)
 }
